@@ -1,0 +1,42 @@
+# Voice presets per documentary style.
+#
+# IMPORTANT: voice_id values below are placeholders. MiniMax voice catalog
+# evolves over time. After P1 setup, run `dub voices` to list current valid
+# voice IDs from the API, then refine these mappings.
+#
+# MiniMax T2A-01 common male narration voices (verify before committing):
+#   male-qn-qingse    清澈青年男声
+#   male-qn-badao     霸道男声
+#   male-qn-jingqiang 精英男声
+#   male-qn-yuanbo    渊博男声
+#   male-qn-daxuesheng 大学生男声
+#
+# To preview: https://www.minimaxi.com/platform/tts
+
+nature:                       # BBC nature: Blue Planet, Planet Earth
+  provider: minimax
+  voice_id: male-qn-qingse
+  speed: 0.95
+  vol: 1.0
+  pitch: 0
+
+food:                         # food / culture, 舌尖-style
+  provider: minimax
+  voice_id: male-qn-badao
+  speed: 0.92
+  vol: 1.0
+  pitch: 0
+
+science:                      # popular science
+  provider: minimax
+  voice_id: female-shaonv
+  speed: 1.0
+  vol: 1.0
+  pitch: 0
+
+history:                      # history / humanities
+  provider: minimax
+  voice_id: male-qn-jingqiang
+  speed: 0.95
+  vol: 1.0
+  pitch: 0

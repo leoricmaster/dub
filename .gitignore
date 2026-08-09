@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Project
+.dub-cache/
+output/
+.DS_Store
+
+# Audio/video intermediate outputs (large)
+*.wav
+*.mp3
+*.m4a
+!config/samples/*.wav
+
+# Test
+.pytest_cache/
+.coverage
+htmlcov/

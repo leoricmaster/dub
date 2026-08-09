@@ -1,0 +1,49 @@
+# Pipeline default settings
+# Override per-run via CLI flags or a custom YAML passed with --config.
+
+pipeline:
+  cache_dir: .dub-cache
+  output_dir: ./output
+  target_language: zh
+
+# Stage: extract audio from container
+extract:
+  sample_rate: 16000        # Whisper/Paraformer-friendly rate
+  mono: true
+
+# Stage: speech-to-text
+asr:
+  provider: dashscope       # only dashscope implemented in P1
+  model: paraformer-v2
+  language_hints: [en]      # bias toward English narration
+  # Internally downloads result with word-level timestamps.
+
+# Stage: translation
+translate:
+  provider: deepseek
+  model: deepseek-chat
+  temperature: 0.3
+  # Chinese chars per second of original audio - used to ask LLM
+  # to chunk long translations to match original timing.
+  max_chars_per_second: 3.5
+  # Number of source segments to translate in one LLM call (for context)
+  context_window: 8
+
+# Stage: text-to-speech
+tts:
+  provider: minimax
+  model: speech-01-turbo    # MiniMax T2A model
+  audio_format: wav
+  sample_rate: 24000
+
+# Stage: mix Chinese dub over original (P1 - simple attenuation)
+# In P2 this becomes true BGM ducking after Demucs separation.
+mix:
+  bg_attenuation_db: -12    # how much to lower original while Chinese is playing
+  sample_rate: 48000
+
+# Stage: mux back into container
+mux:
+  language: chi             # ISO 639-2 code for Mandarin
+  title: "Chinese (AI Dubbed)"
+  set_default: false        # don't force the new track as default
