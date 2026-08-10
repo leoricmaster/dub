@@ -1,13 +1,12 @@
 """Stage: mux the mixed Chinese audio back into the container.
 
-Strategies:
-  - "lean"   : drop original audio tracks; output = video + subtitles + chinese.
-               Smallest output. Use when disk is tight or you only need Chinese.
-  - "all"    : keep all original streams + add chinese track. Largest output.
-               Use when you want to compare/switch tracks in the same file.
+keep_original_audio:
+  - False (default): drop original audio tracks; output = video + subtitles
+    + Chinese. Smallest output.
+  - True: keep all original streams and add the Chinese track. Larger output,
+    useful to compare/switch tracks in one file.
 
-Optional sample mode: stop after N seconds. Good for quick acceptance or when
-full output is too large for the disk.
+sample_seconds: if set, stop after N seconds (quick acceptance / save disk).
 """
 from __future__ import annotations
 

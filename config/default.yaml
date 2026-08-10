@@ -4,7 +4,6 @@
 pipeline:
   cache_dir: .dub-cache
   output_dir: ./output
-  target_language: zh
 
 # Stage: extract audio from container
 extract:

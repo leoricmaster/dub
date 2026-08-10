@@ -13,6 +13,7 @@ Docs:
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 from pathlib import Path
@@ -156,8 +157,6 @@ def transcribe(
     raw_cache = work_dir / "asr_raw.json" if work_dir else None
     if raw_cache and raw_cache.exists():
         log.info("reusing cached ASR raw result from %s", raw_cache)
-        import json
-
         transcription = json.loads(raw_cache.read_text("utf-8"))
         return parse_sentences(transcription)
 
@@ -174,8 +173,6 @@ def transcribe(
         cleanup()
 
     if raw_cache:
-        import json
-
         raw_cache.write_text(
             json.dumps(transcription, ensure_ascii=False, indent=2), encoding="utf-8"
         )

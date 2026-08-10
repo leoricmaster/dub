@@ -51,7 +51,6 @@ class AudioTrack:
     path: Path
     sample_rate: int = 48000
     channels: int = 2
-    duration_ms: int = 0
 
 
 @dataclass

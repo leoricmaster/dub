@@ -41,6 +41,70 @@ def _config_signature(config: AppConfig, voice: str) -> str:
     return hashlib.sha1(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:12]
 
 
+def work_dir_for(input_path: Path, config: AppConfig, voice: str) -> Path:
+    """Per-input cache dir, keyed by file identity + full stage config + voice."""
+    file_hash = input_hash(input_path, extra=voice)
+    sig = _config_signature(config, voice)
+    return Cache(config.pipeline.cache_dir).work_dir(f"{file_hash}-{sig}")
+
+
+def ensure_audio(
+    input_path: Path, config: AppConfig, work_dir: Path, resume: bool
+) -> AudioTrack:
+    """Stage 1: extract audio (cached by audio.wav presence)."""
+    audio_path = work_dir / "audio.wav"
+    if audio_path.exists() and resume:
+        log.info("[1/6] extract (cached)")
+    else:
+        log.info("[1/6] extract")
+        extract.extract_audio(input_path, config.extract, work_dir)
+    return AudioTrack(
+        path=audio_path,
+        sample_rate=config.extract.sample_rate,
+        channels=1 if config.extract.mono else 2,
+    )
+
+
+def ensure_transcript(
+    audio: AudioTrack, config: AppConfig, work_dir: Path, resume: bool
+) -> list[Segment]:
+    """Stage 2: transcribe (cached by segments_en.json presence)."""
+    en_path = work_dir / "segments_en.json"
+    if en_path.exists() and resume:
+        log.info("[2/6] transcribe (cached)")
+        segments = [Segment.from_dict(d) for d in json.loads(en_path.read_text("utf-8"))]
+    else:
+        log.info("[2/6] transcribe")
+        segments = transcribe.transcribe(audio, config.asr, config.env, work_dir)
+        en_path.write_text(
+            json.dumps([s.to_dict() for s in segments], ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    log.info(
+        "      %d segments, total %.1fs narrated",
+        len(segments),
+        sum(s.duration_sec for s in segments),
+    )
+    return segments
+
+
+def ensure_translation(
+    segments: list[Segment], config: AppConfig, work_dir: Path, resume: bool
+) -> list[Segment]:
+    """Stage 3: translate (cached by segments_zh.json presence)."""
+    zh_path = work_dir / "segments_zh.json"
+    if zh_path.exists() and resume:
+        log.info("[3/6] translate (cached)")
+        return [Segment.from_dict(d) for d in json.loads(zh_path.read_text("utf-8"))]
+    log.info("[3/6] translate")
+    segments = translate.translate(segments, config.translate, config.env)
+    zh_path.write_text(
+        json.dumps([s.to_dict() for s in segments], ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return segments
+
+
 def run_pipeline(
     input_path: Path,
     voice: str,
@@ -59,59 +123,18 @@ def run_pipeline(
         )
     voice_preset: VoicePreset = config.voices[voice]
 
-    file_hash = input_hash(input_path, extra=voice)
-    sig = _config_signature(config, voice)
-    cache = Cache(config.pipeline.cache_dir)
-    work_dir = cache.work_dir(f"{file_hash}-{sig}")
-
+    work_dir = work_dir_for(input_path, config, voice)
     ctx = JobContext(input_path=input_path, work_dir=work_dir, voice=voice)
     log.info("processing %s (work_dir: %s)", input_path.name, work_dir.name)
 
     # ---- Stage 1: extract ----
-    audio_path = work_dir / "audio.wav"
-    if audio_path.exists() and resume:
-        log.info("[1/6] extract (cached)")
-    else:
-        log.info("[1/6] extract")
-        ctx.audio = extract.extract_audio(input_path, config.extract, work_dir)
-        # extract writes to work_dir/audio.wav by convention
-    ctx.audio = AudioTrack(
-        path=audio_path,
-        sample_rate=config.extract.sample_rate,
-        channels=1 if config.extract.mono else 2,
-    )
+    ctx.audio = ensure_audio(input_path, config, work_dir, resume)
 
     # ---- Stage 2: transcribe ----
-    en_path = work_dir / "segments_en.json"
-    if en_path.exists() and resume:
-        log.info("[2/6] transcribe (cached)")
-        data = json.loads(en_path.read_text(encoding="utf-8"))
-        segments = [Segment.from_dict(d) for d in data]
-    else:
-        log.info("[2/6] transcribe")
-        segments = transcribe.transcribe(ctx.audio, config.asr, config.env, work_dir)
-        en_path.write_text(
-            json.dumps([s.to_dict() for s in segments], ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-    ctx.segments = segments
-    log.info("      %d segments, total %.1fs narrated",
-             len(segments),
-             sum(s.duration_sec for s in segments))
+    ctx.segments = ensure_transcript(ctx.audio, config, work_dir, resume)
 
     # ---- Stage 3: translate ----
-    zh_path = work_dir / "segments_zh.json"
-    if zh_path.exists() and resume:
-        log.info("[3/6] translate (cached)")
-        data = json.loads(zh_path.read_text(encoding="utf-8"))
-        ctx.segments = [Segment.from_dict(d) for d in data]
-    else:
-        log.info("[3/6] translate")
-        ctx.segments = translate.translate(ctx.segments, config.translate, config.env)
-        zh_path.write_text(
-            json.dumps([s.to_dict() for s in ctx.segments], ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+    ctx.segments = ensure_translation(ctx.segments, config, work_dir, resume)
 
     # ---- Stage 4: tts ----
     clips_dir = work_dir / "tts_clips"

@@ -1,7 +1,6 @@
 """dub CLI entry point."""
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import Optional
@@ -11,14 +10,8 @@ from rich.console import Console
 from rich.logging import RichHandler
 from rich.table import Table
 
-from . import __version__
-from .cache import Cache, input_hash
+from . import __version__, pipeline
 from .config import load_config
-from .models import Segment
-from .pipeline import _config_signature, run_pipeline
-from .stages import extract as extract_stage
-from .stages import transcribe as tr_stage
-from .stages import translate as tl_stage
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -67,7 +60,7 @@ def zh(
         raise typer.BadParameter(
             f"unknown voice '{voice}'. available: {list(cfg.voices)}"
         )
-    out = run_pipeline(
+    out = pipeline.run_pipeline(
         input,
         voice,
         cfg,
@@ -86,32 +79,19 @@ def translate(
 ) -> None:
     """Transcribe + translate only. Prints EN/ZH per segment, no audio output.
 
-    Useful for checking translation quality before paying for TTS.
+    Useful for checking translation quality before paying for TTS. Reuses the
+    same cache as `dub zh`, so repeat previews are free.
     """
     cfg = load_config(config)
-    file_hash = input_hash(input, extra=voice)
-    sig = _config_signature(cfg, voice)
-    cache = Cache(cfg.pipeline.cache_dir)
-    work_dir = cache.work_dir(f"{file_hash}-{sig}")
-
-    audio = extract_stage.extract_audio(input, cfg.extract, work_dir)
-
-    en_path = work_dir / "segments_en.json"
-    if en_path.exists():
-        segments = [Segment.from_dict(d) for d in json.loads(en_path.read_text("utf-8"))]
-    else:
-        segments = tr_stage.transcribe(audio, cfg.asr, cfg.env, work_dir)
-        en_path.write_text(
-            json.dumps([s.to_dict() for s in segments], ensure_ascii=False, indent=2),
-            encoding="utf-8",
+    if voice not in cfg.voices:
+        raise typer.BadParameter(
+            f"unknown voice '{voice}'. available: {list(cfg.voices)}"
         )
 
-    segments = tl_stage.translate(segments, cfg.translate, cfg.env)
-    zh_path = work_dir / "segments_zh.json"
-    zh_path.write_text(
-        json.dumps([s.to_dict() for s in segments], ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    work_dir = pipeline.work_dir_for(input, cfg, voice)
+    audio = pipeline.ensure_audio(input, cfg, work_dir, resume=True)
+    segments = pipeline.ensure_transcript(audio, cfg, work_dir, resume=True)
+    segments = pipeline.ensure_translation(segments, cfg, work_dir, resume=True)
 
     for seg in segments:
         console.print(

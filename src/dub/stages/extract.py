@@ -26,7 +26,7 @@ def _probe_audio_streams(input_path: Path) -> list[dict]:
     return json.loads(result.stdout).get("streams", [])
 
 
-def _pick_audio_stream(streams: list[dict], preferred_lang: str = "eng") -> int:
+def _pick_audio_stream(streams: list[dict], input_path: Path, preferred_lang: str = "eng") -> int:
     """Pick the audio stream index. Prefer preferred_lang; else first."""
     for s in streams:
         if s.get("tags", {}).get("language") == preferred_lang:
@@ -52,7 +52,7 @@ def extract_audio(
     if not out_path.exists():
         streams = _probe_audio_streams(input_path)
         if preferred_lang:
-            stream_idx = _pick_audio_stream(streams, preferred_lang)
+            stream_idx = _pick_audio_stream(streams, input_path, preferred_lang)
             log.info("using audio stream index %d (lang=%s)",
                      stream_idx,
                      streams[[i for i, s in enumerate(streams) if int(s['index']) == stream_idx][0]]
@@ -74,21 +74,8 @@ def extract_audio(
         ]
         subprocess.run(cmd, check=True)
 
-    duration_ms = _probe_duration_ms(out_path)
     return AudioTrack(
         path=out_path,
         sample_rate=cfg.sample_rate,
         channels=1 if cfg.mono else 2,
-        duration_ms=duration_ms,
     )
-
-
-def _probe_duration_ms(path: Path) -> int:
-    cmd = [
-        "ffprobe", "-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        str(path),
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    return int(float(result.stdout.strip()) * 1000)

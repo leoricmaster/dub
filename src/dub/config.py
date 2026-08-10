@@ -23,7 +23,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class PipelineConfig(BaseModel):
     cache_dir: Path = Path(".dub-cache")
     output_dir: Path = Path("./output")
-    target_language: str = "zh"
 
 
 class ExtractConfig(BaseModel):
