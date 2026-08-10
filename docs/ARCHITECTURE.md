@@ -47,10 +47,10 @@ flowchart LR
 
 ## 已知风险
 
-- **时长对齐未强制（头号）**：mix 在 `start_ms` 贴 clip，不校验 `clip ≤ 段时长`，溢出灌进下一段。→ BACKLOG E2
+- **时长对齐：已检测、未自动修复（头号）**：`dub.timing` 在 TTS 后量测 clip 并对溢出告警；但 mix 仍在 `start_ms` 直接贴 clip，溢出仍会灌进下一段，自动修复（调速/精简/拉伸）待 BACKLOG E2。
 - **翻译地道度未验证**：当前 deepseek-chat + 基础 prompt。→ E1
 - **音色是占位值**：`voices.yaml` 的 voice_id 未校验。→ E3
-- **零测试**：provider 改字段会静默坏掉。→ E4
+- **核心已测、provider 未测**：cache/models/timing 等纯函数已有单测（快车道 33 绿）；provider 改字段仍会静默坏掉，契约测试待 E4。
 - **混音无分离**：整体 -12dB，中文段英文旁白仍漏出。→ P2
 - **OSS 临时对象**：失败路径下是否回收未验证。
 

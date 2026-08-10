@@ -42,3 +42,15 @@ target-version = "py310"
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "UP"]
 ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "live: hits real provider APIs (network + keys required; skipped unless --run-live)",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:pydub.utils",  # audioop deprecation, upstream, not ours
+    "ignore::SyntaxWarning:pydub.utils",        # invalid regex escapes in pydub 0.25
+    "ignore::SyntaxWarning:oss2",               # invalid regex escapes in oss2
+]

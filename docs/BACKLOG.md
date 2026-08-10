@@ -27,8 +27,8 @@
 - **验收**：抽 10 段人耳评，无明显机翻腔/硬译。
 
 ### E2 时长对齐
-- TTS 后量测 clip 时长。
-- 超 段时长 → 调 `speed` 重合成 → 再 prompt 精简 → 拉伸兜底。
+- ✅ TTS 后量测 clip 时长并校验窗口（`dub.timing`，已接入 pipeline 告警）。
+- ⬜ 超 段时长 → 调 `speed` 重合成 → 再 prompt 精简 → 拉伸兜底（自动修复）。
 - **验收**：clip 溢出率 = 0；无段间叠音。
 
 ### E3 音色固化
@@ -37,9 +37,10 @@
 - **验收**：`voices.yaml` 全部为已验证音色。
 
 ### E4 测试与稳定性
-- 核心纯函数单测：`config_signature`、`input_hash`、时长校验、mix 时序、Segment 序列化。
-- provider 契约测试（录制响应锁字段）。
-- CI：lint + 单测；确认 OSS 失败路径对象回收。
+- ✅ 核心纯函数单测：`config_signature`（含 voice 预设）、`input_hash`、时长校验、`Segment` 序列化、`Cache`。快车道 33 测试全绿，`cache/models/timing` 100% 覆盖；`@pytest.mark.live` 门控已就位。
+- ⬜ mix 时序测试（依赖 pydub）。
+- ⬜ provider 契约测试（录制响应锁字段）。
+- ⬜ CI：lint + 单测；确认 OSS 失败路径对象回收。
 - **验收**：核心覆盖 ≥ 70%；main 持续绿。
 
 ---

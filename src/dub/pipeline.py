@@ -19,6 +19,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+from . import timing
 from .cache import Cache, input_hash
 from .config import AppConfig, VoicePreset, load_config
 from .models import AudioTrack, JobContext, Segment
@@ -28,7 +29,12 @@ log = logging.getLogger(__name__)
 
 
 def _config_signature(config: AppConfig, voice: str) -> str:
-    """Hash of all stage configs + voice. Changes here invalidate cache."""
+    """Hash of all stage configs + voice preset. Changes here invalidate cache.
+
+    The full voice preset (voice_id, speed, vol, pitch) is included — not just
+    the preset name — so editing voices.yaml correctly invalidates cached TTS
+    clips and downstream artifacts.
+    """
     payload = {
         "extract": config.extract.model_dump(),
         "asr": config.asr.model_dump(),
@@ -37,6 +43,7 @@ def _config_signature(config: AppConfig, voice: str) -> str:
         "mix": config.mix.model_dump(),
         "mux": config.mux.model_dump(),
         "voice": voice,
+        "voice_preset": config.voices[voice].model_dump(),
     }
     return hashlib.sha1(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:12]
 
@@ -148,6 +155,12 @@ def run_pipeline(
         ctx.tts_clips = tts.tts(
             ctx.segments, voice_preset, config.tts, config.env, work_dir
         )
+
+    # Timing check: warn on clips that overflow their segment window. Overflows
+    # cause overlapping Chinese narration (BACKLOG E2 will auto-remediate).
+    overflows = timing.check_alignment(ctx.segments, ctx.tts_clips)
+    if overflows:
+        log.warning("[4/6] timing\n%s", timing.summarize(overflows))
 
     # ---- Stage 5: mix ----
     mixed_path = work_dir / "zh_audio.wav"
