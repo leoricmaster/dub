@@ -2,15 +2,15 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.table import Table
 
-from . import __version__, pipeline
+from . import __version__, pipeline, voice_preview
 from .config import load_config
 
 app = typer.Typer(
@@ -48,11 +48,11 @@ def zh(
         False, "--keep-original-audio",
         help="Keep original audio tracks in output (larger file). Default: drop originals.",
     ),
-    sample: Optional[float] = typer.Option(
+    sample: float | None = typer.Option(
         None, "--sample",
         help="Produce a sample clip of N seconds (for quick preview/acceptance).",
     ),
-    config: Optional[Path] = typer.Option(None, "--config", help="Override YAML config path"),
+    config: Path | None = typer.Option(None, "--config", help="Override YAML config path"),
 ) -> None:
     """Run the full pipeline and add a Chinese audio track to <input>."""
     cfg = load_config(config)
@@ -75,7 +75,7 @@ def zh(
 def translate(
     input: Path = typer.Argument(..., exists=True, dir_okay=False, help="Input video/audio file"),
     voice: str = typer.Option("nature", help="Voice preset (affects cache namespace only)"),
-    config: Optional[Path] = typer.Option(None, "--config", help="Override YAML config path"),
+    config: Path | None = typer.Option(None, "--config", help="Override YAML config path"),
 ) -> None:
     """Transcribe + translate only. Prints EN/ZH per segment, no audio output.
 
@@ -103,7 +103,7 @@ def translate(
 
 @app.command()
 def voices(
-    config: Optional[Path] = typer.Option(None, "--config", help="Override YAML config path"),
+    config: Path | None = typer.Option(None, "--config", help="Override YAML config path"),
 ) -> None:
     """List configured voice presets."""
     cfg = load_config(config)
@@ -115,6 +115,55 @@ def voices(
     for name, v in cfg.voices.items():
         table.add_row(name, v.provider, v.voice_id, f"{v.speed:.2f}")
     console.print(table)
+
+
+@app.command(name="preview-voices")
+def preview_voices(
+    voices: str = typer.Option(
+        ",".join(voice_preview.DEFAULT_PREVIEW_VOICES), "--voices",
+        help="Comma-separated candidate voice_ids.",
+    ),
+    emotions: str = typer.Option(
+        ",".join(voice_preview.DEFAULT_PREVIEW_EMOTIONS), "--emotions",
+        help="Comma-separated emotions, e.g. calm,fluent.",
+    ),
+    speed: float = typer.Option(
+        0.92, "--speed",
+        help="Speech rate applied to every sample (keep equal for fair A/B).",
+    ),
+    text: str | None = typer.Option(
+        None, "--text", help="Override the built-in preview narration line.",
+    ),
+    config: Path | None = typer.Option(None, "--config", help="Override YAML config path"),
+) -> None:
+    """Synthesise a fixed narration across voice x emotion candidates for A/B by ear.
+
+    Low-cost judgement experiment: writes one wav per combo under
+    output/voice-previews/<timestamp>/ and prints a table. Invalid voice_ids
+    are skipped. After listening, pin the winner into config/voices.yaml.
+    """
+    cfg = load_config(config)
+    voice_ids = [v.strip() for v in voices.split(",") if v.strip()]
+    emo_list = [e.strip() for e in emotions.split(",") if e.strip()]
+    matrix = voice_preview.expand_matrix(voice_ids, emo_list)
+
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    out_dir = cfg.pipeline.output_dir / "voice-previews" / ts
+    console.print(f"[dim]synthesising {len(matrix)} samples -> {out_dir}[/dim]")
+
+    results = voice_preview.synthesize_previews(
+        matrix, text or voice_preview.PREVIEW_TEXT, speed, cfg.tts, cfg.env, out_dir
+    )
+    console.print(results and voice_preview.results_table(results))
+
+    ok = [r for r in results if r.status == "ok"]
+    console.print(
+        f"\n[bold]next:[/bold] listen to the {len(ok)} ok sample(s) under {out_dir}, "
+        "pick the one that sounds most like a BBC Chinese documentary, and "
+        "edit config/voices.yaml -> nature."
+    )
+    console.print("\n[dim]# paste into config/voices.yaml -> nature:[/dim]")
+    console.print(voice_preview.nature_yaml_template(speed))
 
 
 @app.command()
