@@ -15,6 +15,7 @@
 | E5 | 人工校对回路 | P2 |
 | E6 | 术语表 | P2 |
 | E7 | 人声/BGM 分离 | ✅ 已完成 |
+| E8 | 本地音色库（本地 TTS+克隆） | P2（条件触发） |
 
 ---
 
@@ -33,7 +34,7 @@
 - **验收**：clip 溢出率 = 0（退化段除外）；无段间叠音。
 
 ### E3 音色固化
-- ✅ `nature` 固化为 `male-qn-yuanbo`（渊博男声）+ `language_boost=Chinese`/`emotion=neutral`。
+- ⬜ `nature`：当前 `presenter_male`，用户不满意（音质偏亮/情感太干）。用 `preview-voices`（见 `2026-08-11-documentary-voice-design.md`）做判定实验：预设里有满意的 → 固化；没有 → 触发 E8 本地路线。
 - ⬜ `food`/`science`/`history` 试听候选并固化。
 - **验收**：`voices.yaml` 全部为已验证音色。
 
@@ -59,6 +60,13 @@
 - ✅ 本地 Demucs `two_stems=vocals` 出伴奏（原计划远程 AutoDL；本机有 3090，改本地，免端点）。
 - ✅ mix 句间 ducking（`duck_db`）；未装 Demucs / 分离失败时降级回整体衰减（HQ 底）。
 - ✅ 验收：中文段无英文人声残留（`dub zh --sample N` 人耳验）。
+
+### E8 本地音色库（条件触发）
+- **触发条件**：E3 判定实验确认云端预设无法满足纪录片旁白质感。
+- 本地 TTS provider（CosyVoice 2 一类，零样本克隆）+ 本地参考音频库——真正的「本地音色库」，不依赖供应商预设。
+- **前提**：修订 PRD「❌ 音色克隆」约束；显式确认参考音频来源合规。
+- **已知风险**：克隆「音色像、韵律弱」，纪录片最吃韵律情感，需单独质量验收。
+- **验收**：中文纪录片旁白人耳评通过；本地 provider 接入 pipeline，离线可用、零调用费。
 
 ---
 
