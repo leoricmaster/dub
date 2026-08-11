@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from rich.table import Table
+
 from .config import EnvSettings, TTSConfig, VoicePreset
 from .providers.minimax_tts import VoiceIdInvalid, synthesize_one
 
@@ -110,3 +112,29 @@ def synthesize_previews(
                 PreviewResult(voice_id, emotion, "error", None, f"{type(e).__name__}: {e}")
             )
     return results
+
+
+def results_table(results: list[PreviewResult]) -> Table:
+    """Build the rich table printed after a sweep."""
+    table = Table(title="Voice Preview Results")
+    table.add_column("voice_id", style="bold")
+    table.add_column("emotion")
+    table.add_column("status")
+    table.add_column("file / note")
+    for r in results:
+        table.add_row(r.voice_id, r.emotion or "-", r.status, r.note)
+    return table
+
+
+def nature_yaml_template(speed: float) -> str:
+    """Fill-in-the-blank YAML snippet for pinning the winner into voices.yaml."""
+    return (
+        "nature:\n"
+        "  provider: minimax\n"
+        "  voice_id: <your-pick>\n"
+        "  emotion: calm          # calm | fluent | neutral\n"
+        f"  speed: {speed}\n"
+        "  vol: 1.0\n"
+        "  pitch: 0\n"
+        "  language_boost: Chinese\n"
+    )

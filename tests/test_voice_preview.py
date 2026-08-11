@@ -1,10 +1,15 @@
+from pathlib import Path
+
 from dub.config import EnvSettings, TTSConfig
 from dub.providers.minimax_tts import VoiceIdInvalid
 from dub.voice_preview import (
     DEFAULT_PREVIEW_EMOTIONS,
     DEFAULT_PREVIEW_VOICES,
+    PreviewResult,
     _filename_for,
     expand_matrix,
+    nature_yaml_template,
+    results_table,
     synthesize_previews,
 )
 
@@ -97,3 +102,22 @@ def test_synthesize_previews_continues_after_error(tmp_path, monkeypatch):
     assert [r.status for r in results] == ["error", "ok"]
     assert "network down" in results[0].note
     assert results[1].status == "ok"
+
+
+def test_results_table_has_one_row_per_result():
+    rs = [
+        PreviewResult("a", "calm", "ok", Path("a__calm.wav"), "a__calm.wav"),
+        PreviewResult("b", None, "skipped", None, "status 2054"),
+    ]
+    table = results_table(rs)
+    assert table.row_count == 2
+    assert [c.header for c in table.columns] == ["voice_id", "emotion", "status", "file / note"]
+
+
+def test_nature_yaml_template_contains_fields():
+    out = nature_yaml_template(0.92)
+    assert out.startswith("nature:")
+    assert "voice_id: <your-pick>" in out
+    assert "emotion: calm" in out
+    assert "speed: 0.92" in out
+    assert "language_boost: Chinese" in out
