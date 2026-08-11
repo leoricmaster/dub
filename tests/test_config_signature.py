@@ -70,3 +70,43 @@ def test_signature_changes_when_remediate_config_changes():
     cfg2 = make_config()
     cfg2.remediate = RemediateConfig(max_atempo=1.4)
     assert _config_signature(cfg1, "nature") != _config_signature(cfg2, "nature")
+
+
+def test_signature_changes_when_separate_config_changes():
+    """Separation params affect the mix bed -> must invalidate the cache."""
+    from dub.config import SeparateConfig
+
+    cfg1 = make_config()
+    cfg2 = make_config()
+    cfg2.separate = SeparateConfig(model="htdemucs")
+    assert _config_signature(cfg1, "nature") != _config_signature(cfg2, "nature")
+
+
+def test_signature_changes_when_duck_db_changes():
+    """Mix ducking depth changes the output -> must invalidate the cache."""
+    from dub.config import MixConfig
+
+    cfg1 = make_config()
+    cfg2 = make_config()
+    cfg2.mix = MixConfig(duck_db=-8.0)
+    assert _config_signature(cfg1, "nature") != _config_signature(cfg2, "nature")
+
+
+def test_signature_changes_when_voice_language_boost_changes():
+    cfg_on = make_config(voices={"nature": make_voice(language_boost="Chinese")})
+    cfg_off = make_config(voices={"nature": make_voice(language_boost=None)})
+    assert _config_signature(cfg_on, "nature") != _config_signature(cfg_off, "nature")
+
+
+def test_work_dir_differs_for_sample_vs_full(tmp_path):
+    """A --sample run must not share/poison a full run's cache directory."""
+    from dub.pipeline import work_dir_for
+
+    cfg = make_config()
+    cfg.pipeline.cache_dir = tmp_path  # contain created dirs
+    src = tmp_path / "a.mkv"
+    src.write_bytes(b"x" * 100)
+
+    full = work_dir_for(src, cfg, "nature")
+    samp = work_dir_for(src, cfg, "nature", sample_seconds=30)
+    assert full != samp

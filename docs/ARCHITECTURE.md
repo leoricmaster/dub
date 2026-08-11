@@ -6,8 +6,8 @@
 
 ```mermaid
 flowchart LR
-  MKV[input.mkv] --> EX[extract] --> TR[transcribe] --> TL[translate] --> TTS[tts] --> MX[mix] --> MUX[mux] --> OUT[output/*.zh.mkv]
-  C[(.dub-cache 每阶段产物)] -.命中即跳过.-> EX & TR & TL & TTS & MX & MUX
+  MKV[input.mkv] --> EX[extract] --> TR[transcribe] --> TL[translate] --> TTS[tts] --> SEP[separate] --> MX[mix] --> MUX[mux] --> OUT[output/*.zh.mkv]
+  C[(.dub-cache 每阶段产物)] -.命中即跳过.-> EX & TR & TL & TTS & SEP & MX & MUX
 ```
 
 `dub zh` 跑完整链路；各阶段产物落盘到 per-input 工作目录，命中即跳过。分层：`pipeline.py` 编排 → `stages/` 阶段逻辑 → `providers/` 厂商调用。
@@ -20,8 +20,9 @@ flowchart LR
 | 2 | transcribe | audio | `Segment[]` 带时间戳 | DashScope Paraformer-v2（音频传 OSS） |
 | 3 | translate | `Segment[]` | 填 `text_zh` | DeepSeek（OpenAI 兼容） |
 | 4 | tts | `Segment[]`+音色 | `tts_clips/*.wav` | MiniMax T2A |
-| 5 | mix | audio+clips | `zh_audio.wav` | pydub overlay |
-| 6 | mux | 原片+zh_audio | `*.zh.mkv` | ffmpeg 加轨 |
+| 5 | separate | 原片（HQ） | `accompaniment.wav`（无人声） | 本地 Demucs `two_stems=vocals`；缺失降级 |
+| 6 | mix | accompaniment+clips | `zh_audio.wav` | pydub，句间 ducking（`duck_db`） |
+| 7 | mux | 原片+zh_audio | `*.zh.mkv` | ffmpeg 加轨 |
 
 ## 关键抽象
 
@@ -41,7 +42,7 @@ flowchart LR
 
 | 决策 | 选择 | 理由 |
 |---|---|---|
-| 全云 vs 本地模型 | 全云 | 国内可达、无 GPU 门槛 |
+| 全云 vs 本地模型 | 全云（ASR/翻译/TTS）+ 本地 Demucs 分离 | 国内云 API 可达；分离用本地 GPU（有 3090），无 GPU 时降级 |
 | 缓存粒度 | 阶段级文件 | 简单；改配置自动失效 |
 | 输出 | 附加 mkv 轨 | 不动原片，可回退可对比 |
 
@@ -49,11 +50,11 @@ flowchart LR
 
 - **时长对齐：已自动修复（原头号）**：`dub.remediate` 三级阶梯——① 翻译期字数预算重译 → ② TTS speed 重合成 → ③ ffmpeg `atempo` 保音高精确对齐，保证 clip ≤ 段窗口；退化短窗截断。已接入 translate/pipeline。live 实跑验证待 `--run-live`。
 - **翻译地道度未验证**：当前 deepseek-chat + 基础 prompt。→ E1
-- **音色是占位值**：`voices.yaml` 的 voice_id 未校验。→ E3
-- **核心已测、provider 未测**：cache/models/timing/remediate 等纯函数与编排器已有单测（快车道 61 绿 + 2 live 跳过）；provider 改字段仍会静默坏掉，契约测试待 E4。
-- **混音无分离**：整体 -12dB，中文段英文旁白仍漏出。→ P2
+- **音色是占位值**：`nature` 已固化 `male-qn-yuanbo`，其余仍待试听验收。→ E3
+- **核心已测、provider 未测**：cache/models/timing/remediate/mix/separate 等纯函数与编排器已有单测（快车道 74 绿 + 3 live 跳过）；provider 改字段仍会静默坏掉，契约测试待 E4。
+- ~~**混音无分离**：整体 -12dB，中文段英文旁白仍漏出。~~ **已解（E7）**：Demucs 去人声 + 句间 ducking；无 GPU/未装时降级回整体衰减。
 - **OSS 临时对象**：失败路径下是否回收未验证。
 
 ## 运行环境
 
-Python ≥ 3.10；ffmpeg 在 PATH；国内网络。P2 起可选 AutoDL 跑 Demucs。
+Python ≥ 3.10；ffmpeg 在 PATH；国内网络。人声分离需 `pip install -e '.[sep]'`（Demucs），建议 NVIDIA GPU；无 GPU 自动降级。

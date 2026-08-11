@@ -1,24 +1,28 @@
 # Voice presets per documentary style.
 #
-# IMPORTANT: voice_id values below are placeholders. MiniMax voice catalog
-# evolves over time. After P1 setup, run `dub voices` to list current valid
-# voice IDs from the API, then refine these mappings.
-#
-# MiniMax T2A-01 common male narration voices (verify before committing):
-#   male-qn-qingse    清澈青年男声
-#   male-qn-badao     霸道男声
-#   male-qn-jingqiang 精英男声
-#   male-qn-yuanbo    渊博男声
+# MiniMax T2A voice_ids are NOT the same as the names shown in the web console,
+# and the old "male-qn-*" guess list was partly wrong. Probed against
+# speech-01-turbo (2026-08), VALID ids include:
+#   presenter_male     播音男声 ← best fit for documentary narration
+#   presenter_female   播音女声
+#   male-qn-qingse     清澈青年男声
+#   male-qn-badao      霸道男声
 #   male-qn-daxuesheng 大学生男声
+# INVALID (will return status 2054 'voice id not exist'): male-qn-jingqiang,
+#   male-qn-yuanbo, narrator_*, news_*, commentator_*.
 #
-# To preview: https://www.minimaxi.com/platform/tts
+# `nature` uses presenter_male. To preview/compare more ids:
+#   https://www.minimaxi.com/platform/tts
+# Invalid voice_ids surface as a clear MiniMax API error at TTS time.
 
 nature:                       # BBC nature: Blue Planet, Planet Earth
   provider: minimax
-  voice_id: male-qn-qingse
+  voice_id: presenter_male    # 播音男声 — broadcaster/narrator, documentary gravitas
   speed: 0.95
   vol: 1.0
   pitch: 0
+  language_boost: Chinese     # top-level MiniMax param, biases Mandarin output
+  emotion: neutral
 
 food:                         # food / culture, 舌尖-style
   provider: minimax
@@ -26,6 +30,7 @@ food:                         # food / culture, 舌尖-style
   speed: 0.92
   vol: 1.0
   pitch: 0
+  language_boost: Chinese
 
 science:                      # popular science
   provider: minimax
@@ -33,10 +38,12 @@ science:                      # popular science
   speed: 1.0
   vol: 1.0
   pitch: 0
+  language_boost: Chinese
 
 history:                      # history / humanities
   provider: minimax
-  voice_id: male-qn-jingqiang
+  voice_id: presenter_male    # male-qn-jingqiang is invalid; reuse presenter_male for now
   speed: 0.95
   vol: 1.0
   pitch: 0
+  language_boost: Chinese

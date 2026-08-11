@@ -6,15 +6,18 @@
 
 ```
 input.mkv
-  → extract     (ffmpeg 抽轨)
+  → extract     (ffmpeg 抽轨，16k mono 给 ASR)
   → transcribe  (阿里云 Paraformer-v2，英文转写带时间戳)
   → translate   (DeepSeek，时长感知断句)
   → tts         (MiniMax，中文纪录片音色)
-  → mix         (中文配音叠加原音轨，原音衰减 -12dB)
+  → separate    (本地 Demucs，去英文人声、留音乐/音效作伴奏)
+  → mix         (中文配音叠加伴奏，句间 ducking)
   → mux         (写入 mkv 作为新音轨)
 ```
 
 每阶段产物按输入文件 hash + 配置 hash 缓存到 `.dub-cache/`，断点续跑、改配置只重跑受影响阶段。
+
+> **人声分离需要 GPU**：`separate` 用本地 Demucs，需 `pip install -e '.[sep]'` 且建议有 NVIDIA GPU（CPU 可跑但慢）。未装 Demucs 时自动降级为「整体衰减原音」混音（英文会微弱残留）。首次运行会从 HuggingFace（默认走国内镜像 `hf-mirror.com`，见 `separate.hf_endpoint`）下载模型（~80MB，仅一次）。
 
 ## 快速开始
 
@@ -59,7 +62,7 @@ dub zh input.mkv --voice nature --no-resume             # 改配置后强制重�
 
 ## 音色
 
-`config/voices.yaml` 里的 voice_id 当前是占位值，跑通后到 MiniMax 控制台试听候选并更新映射。
+`config/voices.yaml`：`nature` 已固化为 `male-qn-yuanbo`（渊博男声，纪录片旁白）。其余预设（food/science/history）的 voice_id 仍为候选，到 [MiniMax 控制台](https://platform.minimaxi.com/platform/tts) 试听后更新即可。音色按预设缓存，换 voice_id 只重花 TTS 的钱。
 
 ## 文档
 
@@ -74,3 +77,5 @@ dub zh input.mkv --voice nature --no-resume             # 改配置后强制重�
 **MiniMax 报「unauthorized」** — 同时需要 API Key（Bearer）和 Group ID（URL 参数），都在 `.env`。
 
 **ffmpeg 找不到** — `brew install ffmpeg`（macOS）或对应包管理器。
+
+**separate 报模型下载失败 / 降级到衰减** — Demucs 模型默认从国内镜像 `hf-mirror.com` 拉。若仍不通：挂代理重跑一次（模型缓存在 `~/.cache/huggingface/`，之后离线可用），或把 `separate.hf_endpoint` 改成可达地址，或 `separate.enabled: false` 临时只用衰减混音。

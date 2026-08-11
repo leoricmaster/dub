@@ -5,7 +5,6 @@ import json
 import logging
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 from ..config import ExtractConfig
 from ..models import AudioTrack
@@ -45,9 +44,14 @@ def extract_audio(
     input_path: Path,
     cfg: ExtractConfig,
     work_dir: Path,
-    preferred_lang: Optional[str] = "eng",
+    preferred_lang: str | None = "eng",
+    sample_seconds: float | None = None,
 ) -> AudioTrack:
-    """Extract audio as 16-bit PCM wav at the configured sample rate."""
+    """Extract audio as 16-bit PCM wav at the configured sample rate.
+
+    sample_seconds: if set, extract only the first N seconds (used by --sample
+    so the whole pipeline processes a short slice, not the full media).
+    """
     out_path = work_dir / "audio.wav"
     if not out_path.exists():
         streams = _probe_audio_streams(input_path)
@@ -70,8 +74,10 @@ def extract_audio(
             "-acodec", "pcm_s16le",
             "-ar", str(cfg.sample_rate),
             "-ac", channels,
-            str(out_path),
         ]
+        if sample_seconds is not None:
+            cmd += ["-t", str(sample_seconds)]
+        cmd.append(str(out_path))
         subprocess.run(cmd, check=True)
 
     return AudioTrack(

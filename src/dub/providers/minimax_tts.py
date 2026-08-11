@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 MINIMAX_T2A_URL = "https://api.minimaxi.com/v1/t2a_v2"
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2, max=20))
+@retry(stop=stop_after_attempt(6), wait=wait_exponential(min=2, max=30))
 def synthesize_one(
     text: str,
     voice: VoicePreset,
@@ -34,27 +34,36 @@ def synthesize_one(
     if not env.minimax_group_id:
         raise ValueError("MINIMAX_GROUP_ID not set")
 
+    voice_setting = {
+        "voice_id": voice.voice_id,
+        "speed": voice.speed,
+        "vol": voice.vol,
+        "pitch": voice.pitch,
+    }
+    if voice.emotion is not None:
+        voice_setting["emotion"] = voice.emotion
+
+    payload: dict = {
+        "model": cfg.model,
+        "text": text,
+        "stream": False,
+        "voice_setting": voice_setting,
+        "audio_setting": {
+            "sample_rate": cfg.sample_rate,
+            "format": cfg.audio_format,
+        },
+    }
+    if voice.language_boost is not None:
+        # Top-level param (sibling of voice_setting), biases a target language.
+        payload["language_boost"] = voice.language_boost
+
     resp = httpx.post(
         f"{MINIMAX_T2A_URL}?GroupId={env.minimax_group_id}",
         headers={
             "Authorization": f"Bearer {env.minimax_api_key}",
             "Content-Type": "application/json",
         },
-        json={
-            "model": cfg.model,
-            "text": text,
-            "stream": False,
-            "voice_setting": {
-                "voice_id": voice.voice_id,
-                "speed": voice.speed,
-                "vol": voice.vol,
-                "pitch": voice.pitch,
-            },
-            "audio_setting": {
-                "sample_rate": cfg.sample_rate,
-                "format": cfg.audio_format,
-            },
-        },
+        json=payload,
         timeout=60,
     )
     resp.raise_for_status()

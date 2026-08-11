@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 
 @dataclass
@@ -12,7 +11,7 @@ class Segment:
 
     id: int
     text_src: str                       # original-language transcript
-    text_zh: Optional[str] = None       # Chinese translation
+    text_zh: str | None = None       # Chinese translation
     start_ms: int = 0
     end_ms: int = 0
 
@@ -61,8 +60,10 @@ class JobContext:
     work_dir: Path                       # per-input cache directory
     voice: str = "nature"
 
-    audio: Optional[AudioTrack] = None   # extracted from container
+    audio: AudioTrack | None = None   # extracted from container
     segments: list[Segment] = field(default_factory=list)
     tts_clips: dict[int, Path] = field(default_factory=dict)
-    mixed_audio: Optional[Path] = None
-    output_path: Optional[Path] = None
+    accompaniment: Path | None = None  # no-vocals bed (separate stage), None on fallback
+    audio_hq: Path | None = None       # HQ full audio (fallback mix bed)
+    mixed_audio: Path | None = None
+    output_path: Path | None = None

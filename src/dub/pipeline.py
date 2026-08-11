@@ -22,7 +22,7 @@ from . import remediate, timing
 from .cache import Cache, input_hash
 from .config import AppConfig, VoicePreset, load_config
 from .models import AudioTrack, JobContext, Segment
-from .stages import extract, mix, mux, transcribe, translate, tts
+from .stages import extract, mix, mux, separate, transcribe, translate, tts
 
 log = logging.getLogger(__name__)
 
@@ -42,15 +42,23 @@ def _config_signature(config: AppConfig, voice: str) -> str:
         "mix": config.mix.model_dump(),
         "mux": config.mux.model_dump(),
         "remediate": config.remediate.model_dump(),
+        "separate": config.separate.model_dump(),
         "voice": voice,
         "voice_preset": config.voices[voice].model_dump(),
     }
     return hashlib.sha1(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:12]
 
 
-def work_dir_for(input_path: Path, config: AppConfig, voice: str) -> Path:
-    """Per-input cache dir, keyed by file identity + full stage config + voice."""
-    file_hash = input_hash(input_path, extra=voice)
+def work_dir_for(
+    input_path: Path, config: AppConfig, voice: str, sample_seconds: float | None = None
+) -> Path:
+    """Per-input cache dir, keyed by file identity + full stage config + voice.
+
+    sample_seconds is mixed into the key so a --sample run (short slice) does
+    not collide with / poison a full run's cache.
+    """
+    extra = voice if not sample_seconds else f"{voice}|sample={sample_seconds}"
+    file_hash = input_hash(input_path, extra=extra)
     sig = _config_signature(config, voice)
     return Cache(config.pipeline.cache_dir).work_dir(f"{file_hash}-{sig}")
 
@@ -67,15 +75,16 @@ def _make_resynth_fn(voice: VoicePreset, tts_cfg, env):
 
 
 def ensure_audio(
-    input_path: Path, config: AppConfig, work_dir: Path, resume: bool
+    input_path: Path, config: AppConfig, work_dir: Path, resume: bool,
+    sample_seconds: float | None = None,
 ) -> AudioTrack:
     """Stage 1: extract audio (cached by audio.wav presence)."""
     audio_path = work_dir / "audio.wav"
     if audio_path.exists() and resume:
-        log.info("[1/6] extract (cached)")
+        log.info("[1/7] extract (cached)")
     else:
-        log.info("[1/6] extract")
-        extract.extract_audio(input_path, config.extract, work_dir)
+        log.info("[1/7] extract")
+        extract.extract_audio(input_path, config.extract, work_dir, sample_seconds=sample_seconds)
     return AudioTrack(
         path=audio_path,
         sample_rate=config.extract.sample_rate,
@@ -89,10 +98,10 @@ def ensure_transcript(
     """Stage 2: transcribe (cached by segments_en.json presence)."""
     en_path = work_dir / "segments_en.json"
     if en_path.exists() and resume:
-        log.info("[2/6] transcribe (cached)")
+        log.info("[2/7] transcribe (cached)")
         segments = [Segment.from_dict(d) for d in json.loads(en_path.read_text("utf-8"))]
     else:
-        log.info("[2/6] transcribe")
+        log.info("[2/7] transcribe")
         segments = transcribe.transcribe(audio, config.asr, config.env, work_dir)
         en_path.write_text(
             json.dumps([s.to_dict() for s in segments], ensure_ascii=False, indent=2),
@@ -112,9 +121,9 @@ def ensure_translation(
     """Stage 3: translate (cached by segments_zh.json presence)."""
     zh_path = work_dir / "segments_zh.json"
     if zh_path.exists() and resume:
-        log.info("[3/6] translate (cached)")
+        log.info("[3/7] translate (cached)")
         return [Segment.from_dict(d) for d in json.loads(zh_path.read_text("utf-8"))]
-    log.info("[3/6] translate")
+    log.info("[3/7] translate")
     segments = translate.translate(segments, config.translate, config.env)
     zh_path.write_text(
         json.dumps([s.to_dict() for s in segments], ensure_ascii=False, indent=2),
@@ -141,12 +150,12 @@ def run_pipeline(
         )
     voice_preset: VoicePreset = config.voices[voice]
 
-    work_dir = work_dir_for(input_path, config, voice)
+    work_dir = work_dir_for(input_path, config, voice, sample_seconds)
     ctx = JobContext(input_path=input_path, work_dir=work_dir, voice=voice)
     log.info("processing %s (work_dir: %s)", input_path.name, work_dir.name)
 
     # ---- Stage 1: extract ----
-    ctx.audio = ensure_audio(input_path, config, work_dir, resume)
+    ctx.audio = ensure_audio(input_path, config, work_dir, resume, sample_seconds)
 
     # ---- Stage 2: transcribe ----
     ctx.segments = ensure_transcript(ctx.audio, config, work_dir, resume)
@@ -159,10 +168,10 @@ def run_pipeline(
     expected = sum(1 for s in ctx.segments if s.text_zh)
     existing = list(clips_dir.glob("*.wav")) if clips_dir.exists() else []
     if len(existing) >= expected and expected > 0 and resume:
-        log.info("[4/6] tts (cached %d clips)", len(existing))
+        log.info("[4/7] tts (cached %d clips)", len(existing))
         ctx.tts_clips = {int(p.stem): p for p in existing}
     else:
-        log.info("[4/6] tts (%d clips)", expected)
+        log.info("[4/7] tts (%d clips)", expected)
         ctx.tts_clips = tts.tts(
             ctx.segments, voice_preset, config.tts, config.env, work_dir
         )
@@ -171,7 +180,7 @@ def run_pipeline(
     # segment windows so they don't overlap adjacent narration.
     overflows = timing.check_alignment(ctx.segments, ctx.tts_clips)
     if overflows:
-        log.warning("[4/6] %d clip(s) overflow; remediating (rung ②③)", len(overflows))
+        log.warning("[4/7] %d clip(s) overflow; remediating (rung ②③)", len(overflows))
         report = remediate.remediate_clips(
             ctx.segments,
             ctx.tts_clips,
@@ -183,31 +192,39 @@ def run_pipeline(
             resynth_fn=_make_resynth_fn(voice_preset, config.tts, config.env),
             fit_fn=remediate.atempo_fit,
         )
-        log.info("[4/6] timing remediation: %s", report)
+        log.info("[4/7] timing remediation: %s", report)
         remaining = timing.check_alignment(ctx.segments, ctx.tts_clips)
         if remaining:
             log.warning(
-                "[4/6] %d clip(s) still overflow after remediation:\n%s",
+                "[4/7] %d clip(s) still overflow after remediation:\n%s",
                 len(remaining),
                 timing.summarize(remaining),
             )
 
-    # ---- Stage 5: mix ----
+    # ---- Stage 5: separate (vocals from accompaniment) ----
+    ctx.accompaniment = separate.separate(input_path, config.separate, work_dir, sample_seconds)
+    ctx.audio_hq = work_dir / "audio_hq.wav"
+
+    # ---- Stage 6: mix ----
     mixed_path = work_dir / "zh_audio.wav"
     if mixed_path.exists() and resume:
-        log.info("[5/6] mix (cached)")
+        log.info("[6/7] mix (cached)")
     else:
-        log.info("[5/6] mix")
-        mix.mix_audio(ctx.audio, ctx.segments, ctx.tts_clips, config.mix, work_dir)
+        log.info("[6/7] mix")
+        # Accompaniment bed when separation succeeded; else attenuate the HQ
+        # full audio as a fallback. (zh_audio.wav is this stage's cache key.)
+        base = ctx.accompaniment if ctx.accompaniment else ctx.audio_hq
+        mode = mix.MODE_ACCOMPANIMENT if ctx.accompaniment else mix.MODE_ATTENUATE
+        mix.mix_audio(base, ctx.segments, ctx.tts_clips, config.mix, work_dir, mode=mode)
     ctx.mixed_audio = mixed_path
 
-    # ---- Stage 6: mux ----
+    # ---- Stage 7: mux ----
     output_suffix = ".sample.mkv" if sample_seconds else ".zh.mkv"
     output_path = config.pipeline.output_dir / f"{input_path.stem}{output_suffix}"
     if output_path.exists() and resume:
-        log.info("[6/6] mux (cached)")
+        log.info("[7/7] mux (cached)")
     else:
-        log.info("[6/6] mux")
+        log.info("[7/7] mux")
         output_path.parent.mkdir(parents=True, exist_ok=True)
         mux.mux_track(
             input_path,

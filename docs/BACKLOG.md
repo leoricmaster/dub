@@ -14,7 +14,7 @@
 | E4 | 测试与稳定性 | **P1.5** |
 | E5 | 人工校对回路 | P2 |
 | E6 | 术语表 | P2 |
-| E7 | 人声/BGM 分离 | P2 |
+| E7 | 人声/BGM 分离 | ✅ 已完成 |
 
 ---
 
@@ -33,8 +33,8 @@
 - **验收**：clip 溢出率 = 0（退化段除外）；无段间叠音。
 
 ### E3 音色固化
-- `dub voices` 校验有效 voice_id。
-- 试听候选，固化为自然纪录片男/女声。
+- ✅ `nature` 固化为 `male-qn-yuanbo`（渊博男声）+ `language_boost=Chinese`/`emotion=neutral`。
+- ⬜ `food`/`science`/`history` 试听候选并固化。
 - **验收**：`voices.yaml` 全部为已验证音色。
 
 ### E4 测试与稳定性
@@ -55,9 +55,10 @@
 ### E6 术语表
 - `config/glossary.yaml`：物种/人名/地名；注入 prompt 强制一致。
 
-### E7 人声/BGM 分离
-- 远程 Demucs v4 分离；中文段 ducking；本地无 GPU 降级回整体衰减。
-- **验收**：中文段无英文人声残留。
+### E7 人声/BGM 分离 ✅
+- ✅ 本地 Demucs `two_stems=vocals` 出伴奏（原计划远程 AutoDL；本机有 3090，改本地，免端点）。
+- ✅ mix 句间 ducking（`duck_db`）；未装 Demucs / 分离失败时降级回整体衰减（HQ 底）。
+- ✅ 验收：中文段无英文人声残留（`dub zh --sample N` 人耳验）。
 
 ---
 
@@ -68,4 +69,4 @@ SaaS / Web UI、音色克隆、大规模分发。
 ## 里程碑
 
 - **M1（P1.5）**：E1+E2+E3+E4 → 翻译地道、配音自然、可维护。
-- **M2（P2）**：E5+E6+E7 → 质量再提一档。
+- **M2（P2）**：E5+E6+E7 → 质量再提一档。（E7 已提前完成并落地）

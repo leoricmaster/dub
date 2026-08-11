@@ -45,15 +45,38 @@ class TranslateConfig(BaseModel):
 
 class TTSConfig(BaseModel):
     provider: str = "minimax"
-    model: str = "speech-01-turbo"
+    model: str = "speech-2.8-hd"
     audio_format: str = "wav"
     sample_rate: int = 24000
     max_speed: float = 1.2  # E2 rung ②: cap for speed re-synth
 
 
 class MixConfig(BaseModel):
-    bg_attenuation_db: float = -12.0
+    bg_attenuation_db: float = -12.0  # fallback (attenuate mode): lower whole track
+    duck_db: float = -4.0  # accompaniment mode: dip bed under each Chinese clip
     sample_rate: int = 48000
+
+
+class SeparateConfig(BaseModel):
+    """Vocal separation (E7): split original into vocals + accompaniment.
+
+    The mix stage uses the accompaniment (music/SFX, English vocals removed)
+    as its bed instead of attenuating the full original. Demucs runs locally
+    (GPU); if the optional [sep] extra or the device is unavailable, mix
+    falls back to whole-track attenuation.
+    """
+
+    enabled: bool = True
+    provider: str = "demucs"  # only demucs implemented
+    model: str = "htdemucs_ft"  # Demucs v4 hybrid transformer (fine-tuned)
+    two_stems: str = "vocals"  # emit vocals.wav + no_vocals.wav (accompaniment)
+    device: str = "cuda"  # cuda | cpu
+    sample_rate: int = 44100  # HQ feed extract rate for separation
+    channels: int = 2
+    # demucs loads models from the HuggingFace hub first; huggingface.co is
+    # unreliable in mainland China, so default to the hf-mirror.com mirror.
+    # Set to "" to use the upstream endpoint, or override per-environment.
+    hf_endpoint: str = "https://hf-mirror.com"
 
 
 class RemediateConfig(BaseModel):
@@ -76,6 +99,8 @@ class VoicePreset(BaseModel):
     speed: float = 1.0
     vol: float = 1.0
     pitch: int = 0
+    language_boost: str | None = None  # top-level MiniMax param, e.g. "Chinese"
+    emotion: str | None = None  # inside voice_setting, e.g. "neutral"
 
 
 # ----- Env-sourced secrets -----
@@ -113,6 +138,7 @@ class AppConfig:
     mix: MixConfig = field(default_factory=MixConfig)
     mux: MuxConfig = field(default_factory=MuxConfig)
     remediate: RemediateConfig = field(default_factory=RemediateConfig)
+    separate: SeparateConfig = field(default_factory=SeparateConfig)
     voices: dict[str, VoicePreset] = field(default_factory=dict)
     env: EnvSettings = field(default_factory=EnvSettings)
 
@@ -155,6 +181,7 @@ def load_config(override: Path | None = None) -> AppConfig:
         mix=MixConfig(**merged.get("mix", {})),
         mux=MuxConfig(**merged.get("mux", {})),
         remediate=RemediateConfig(**merged.get("remediate", {})),
+        separate=SeparateConfig(**merged.get("separate", {})),
         voices=voices,
         env=EnvSettings(),
     )

@@ -1,10 +1,14 @@
 """Regression tests for stages.mix.
 
-Locks the cross-frame-rate overlay behavior: extract outputs 16k mono while
-MiniMax TTS outputs 24k, so mix_audio overlays 24k clips onto a 16k base.
-pydub's overlay handles this via internal _sync (resamples to max frame_rate),
-but that correctness is not obvious from the code and relies on pydub behavior.
-These tests pin it so a refactor or pydub upgrade that breaks it is caught.
+Covers the two mix modes:
+
+- ``accompaniment``: the bed is dipped by ``duck_db`` only under each Chinese
+  clip's window; the bed stays full-volume between clips. Cross-frame-rate
+  overlay (24k MiniMax clip onto a 44.1k/48k bed) must still land at the right
+  position without pitch shift — pydub's ``_sync`` handles it, but that
+  correctness is non-obvious and is pinned here.
+- ``attenuate`` (fallback): the whole bed is lowered uniformly by
+  ``bg_attenuation_db`` and clips are overlaid.
 """
 from __future__ import annotations
 
@@ -14,28 +18,24 @@ import struct
 import wave
 
 from dub.config import MixConfig
-from dub.models import AudioTrack, Segment
-from dub.stages.mix import mix_audio
+from dub.models import Segment
+from dub.stages.mix import MODE_ACCOMPANIMENT, MODE_ATTENUATE, mix_audio
 
 
 def _tone_wav(path, seconds, freq, framerate, amp=12000):
-    """Write a pure-tone wav (used as a stand-in for narration / background)."""
+    """Write a pure-tone wav (stand-in for narration / bed). amp=0 -> silence."""
     n = int(seconds * framerate)
     with wave.open(str(path), "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(2)
         w.setframerate(framerate)
         w.writeframes(
-            struct_pack_tone(n, freq, framerate, amp)
+            struct.pack(
+                "<" + "h" * n,
+                *[int(amp * math.sin(2 * math.pi * freq * i / framerate)) for i in range(n)],
+            )
         )
     return path
-
-
-def struct_pack_tone(n, freq, framerate, amp):
-    return struct.pack(
-        "<" + "h" * n,
-        *[int(amp * math.sin(2 * math.pi * freq * i / framerate)) for i in range(n)],
-    )
 
 
 def _power_at(samples, fr, freq):
@@ -58,38 +58,89 @@ def _read_samples(path):
         return w.getframerate(), array.array("h", w.readframes(w.getnframes()))
 
 
-def test_mix_preserves_pitch_across_mismatched_frame_rates(tmp_path):
-    """16k base + 24k clip: neither the clip nor the base must change pitch."""
-    base = _tone_wav(tmp_path / "base.wav", 3.0, freq=220, framerate=16000)
-    clip = _tone_wav(tmp_path / "clip.wav", 1.0, freq=880, framerate=24000)
+def _rms(samples):
+    m = max(1, len(samples))
+    return (sum(x * x for x in samples) / m) ** 0.5
 
-    audio = AudioTrack(path=base, sample_rate=16000, channels=1)
+
+# --------------------------------------------------------------------------- #
+# accompaniment mode                                                          #
+# --------------------------------------------------------------------------- #
+
+def test_accompaniment_overlay_dominates_in_clip_window(tmp_path):
+    """44.1k bed + 24k clip: clip dominates its window, bed intact after."""
+    base = _tone_wav(tmp_path / "base.wav", 3.0, freq=220, framerate=44100, amp=12000)
+    clip = _tone_wav(tmp_path / "clip.wav", 1.0, freq=880, framerate=24000, amp=24000)
+
     seg = Segment(id=0, text_src=".", start_ms=500, end_ms=1500)
-    cfg = MixConfig(bg_attenuation_db=-12, sample_rate=48000)
+    cfg = MixConfig(duck_db=-4, sample_rate=44100)
 
-    out = mix_audio(audio, [seg], {0: clip}, cfg, tmp_path)
+    out = mix_audio(base, [seg], {0: clip}, cfg, tmp_path, mode=MODE_ACCOMPANIMENT)
     fr, s = _read_samples(out)
 
-    # Clip window [500,1500]ms: the 880Hz clip must dominate (louder than the
-    # -12dB-attenuated 220Hz base underneath).
+    # Clip window [500,1500]ms: the 880Hz clip must dominate the ducked 220Hz bed.
     assert _dominant(s[int(0.6 * fr):int(1.4 * fr)], fr, [220, 880]) == 880
-    # Base-only window [1600,2400]ms: the 220Hz base must be intact, uncorrupted.
+    # Bed-only window [1600,2400]ms: the 220Hz bed is intact (full volume here).
     assert _dominant(s[int(1.6 * fr):int(2.4 * fr)], fr, [220, 880]) == 220
 
 
-def test_mix_clip_lands_at_segment_start(tmp_path):
-    """The overlaid clip must begin at seg.start_ms, not be shifted by the rate gap."""
-    base = _tone_wav(tmp_path / "base.wav", 3.0, freq=220, framerate=16000)
-    clip = _tone_wav(tmp_path / "clip.wav", 0.5, freq=880, framerate=24000)
+def test_accompaniment_clip_lands_at_segment_start(tmp_path):
+    """The overlaid clip must begin at seg.start_ms, not shifted by the rate gap."""
+    base = _tone_wav(tmp_path / "base.wav", 3.0, freq=220, framerate=44100)
+    clip = _tone_wav(tmp_path / "clip.wav", 0.5, freq=880, framerate=24000, amp=24000)
 
-    audio = AudioTrack(path=base, sample_rate=16000, channels=1)
     seg = Segment(id=0, text_src=".", start_ms=1000, end_ms=1500)
-    out = mix_audio(audio, [seg], {0: clip}, MixConfig(bg_attenuation_db=-12), tmp_path)
+    out = mix_audio(
+        base, [seg], {0: clip}, MixConfig(duck_db=-4), tmp_path, mode=MODE_ACCOMPANIMENT
+    )
     fr, s = _read_samples(out)
 
-    def rms(a, b):
-        w = s[int(a * fr / 1000):int(b * fr / 1000)]
-        return int((sum(x * x for x in w) / max(1, len(w))) ** 0.5)
+    assert _rms(s[int(0 * fr / 1000):int(900 * fr / 1000)]) < _rms(
+        s[int(1000 * fr / 1000):int(1400 * fr / 1000)]
+    )  # quiet before clip, loud during
 
-    assert rms(0, 900) < rms(1000, 1400)   # silent before clip, loud during
-    assert rms(1600, 2500) < rms(1000, 1400)  # silent after clip
+
+def test_accompaniment_ducks_bed_by_duck_db(tmp_path):
+    """Under a (silent) clip, the bed must drop by ~duck_db; outside, full volume."""
+    amp = 16000
+    base = _tone_wav(tmp_path / "base.wav", 3.0, freq=220, framerate=44100, amp=amp)
+    silent = _tone_wav(tmp_path / "clip.wav", 1.0, freq=880, framerate=24000, amp=0)
+
+    seg = Segment(id=0, text_src=".", start_ms=1000, end_ms=2000)
+    duck_db = -6.0
+    cfg = MixConfig(duck_db=duck_db, sample_rate=44100)
+
+    out = mix_audio(base, [seg], {0: silent}, cfg, tmp_path, mode=MODE_ACCOMPANIMENT)
+    fr, s = _read_samples(out)
+
+    inside = _rms(s[int(1200 * fr / 1000):int(1800 * fr / 1000)])
+    outside = _rms(s[int(2100 * fr / 1000):int(2700 * fr / 1000)])
+
+    ratio = inside / outside
+    expected = 10 ** (duck_db / 20.0)
+    assert abs(ratio - expected) < 0.06  # bed dipped ~duck_db, nowhere else
+
+
+# --------------------------------------------------------------------------- #
+# attenuate mode (fallback)                                                   #
+# --------------------------------------------------------------------------- #
+
+def test_attenuate_lowers_whole_bed_uniformly(tmp_path):
+    """Fallback: whole bed attenuated by bg_attenuation_db; no extra ducking."""
+    amp = 16000
+    base = _tone_wav(tmp_path / "base.wav", 3.0, freq=220, framerate=44100, amp=amp)
+    silent = _tone_wav(tmp_path / "clip.wav", 1.0, freq=880, framerate=24000, amp=0)
+
+    seg = Segment(id=0, text_src=".", start_ms=1000, end_ms=2000)
+    bg_db = -12.0
+    cfg = MixConfig(bg_attenuation_db=bg_db, sample_rate=44100)
+
+    out = mix_audio(base, [seg], {0: silent}, cfg, tmp_path, mode=MODE_ATTENUATE)
+    fr, s = _read_samples(out)
+
+    inside = _rms(s[int(1200 * fr / 1000):int(1800 * fr / 1000)])
+    outside = _rms(s[int(2100 * fr / 1000):int(2700 * fr / 1000)])
+    raw = _rms(_read_samples(base)[1])  # unattenuated original
+
+    assert abs(inside / outside - 1.0) < 0.05            # uniform, no ducking
+    assert abs(inside / raw - 10 ** (bg_db / 20.0)) < 0.06  # lowered ~bg_attenuation_db

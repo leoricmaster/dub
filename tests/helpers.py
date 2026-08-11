@@ -16,9 +16,17 @@ def make_voice(
     speed: float = 0.95,
     vol: float = 1.0,
     pitch: int = 0,
+    language_boost: str | None = None,
+    emotion: str | None = None,
 ) -> VoicePreset:
     return VoicePreset(
-        provider="minimax", voice_id=voice_id, speed=speed, vol=vol, pitch=pitch
+        provider="minimax",
+        voice_id=voice_id,
+        speed=speed,
+        vol=vol,
+        pitch=pitch,
+        language_boost=language_boost,
+        emotion=emotion,
     )
 
 

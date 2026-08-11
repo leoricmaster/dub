@@ -106,6 +106,12 @@ def poll_transcription(
         if status == "SUCCEEDED":
             return data
         if status == "FAILED":
+            if "NO_VALID_FRAGMENT" in str(data):
+                raise RuntimeError(
+                    "ASR detected no speech in the audio (no valid fragment). "
+                    "The input likely has no narration — e.g. music/ambient only — "
+                    "so there is nothing to dub. Try a clip with spoken voiceover."
+                )
             raise RuntimeError(f"ASR task failed: {data}")
         time.sleep(poll_interval)
     raise TimeoutError(f"ASR task {task_id} did not finish within {timeout_sec}s")

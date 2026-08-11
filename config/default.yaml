@@ -32,15 +32,33 @@ translate:
 # Stage: text-to-speech
 tts:
   provider: minimax
-  model: speech-01-turbo    # MiniMax T2A model
+  model: speech-2.8-hd      # MiniMax T2A HD model (natural/expressive; was speech-01-turbo)
   audio_format: wav
   sample_rate: 24000
   max_speed: 1.2            # E2 rung ②: cap for speed re-synth
 
-# Stage: mix Chinese dub over original (P1 - simple attenuation)
-# In P2 this becomes true BGM ducking after Demucs separation.
+# Stage: separate vocals from accompaniment (E7 - local Demucs)
+# Produces accompaniment (music/SFX, English vocals removed) which mix uses as
+# its bed. Requires the optional [sep] extra (pip install -e '.[sep]') and a
+# CUDA GPU for speed; falls back to whole-track attenuation if unavailable.
+separate:
+  enabled: true
+  provider: demucs
+  model: htdemucs_ft        # Demucs v4 hybrid transformer (fine-tuned)
+  two_stems: vocals         # emit vocals.wav + no_vocals.wav
+  device: cuda              # cuda | cpu
+  sample_rate: 44100        # HQ feed extract rate
+  channels: 2
+  hf_endpoint: https://hf-mirror.com  # HF mirror (demucs fetches models from HF first);
+                                       # mainland-China friendly. "" = upstream.
+
+# Stage: mix Chinese dub over the accompaniment bed
+# - accompaniment mode (default, when separation succeeded): dip the bed by
+#   duck_db under each Chinese clip, overlay Chinese. Music swells between lines.
+# - attenuate mode (fallback): lower the whole original by bg_attenuation_db.
 mix:
-  bg_attenuation_db: -12    # how much to lower original while Chinese is playing
+  duck_db: -4               # accompaniment mode: dip bed under Chinese speech
+  bg_attenuation_db: -12    # attenuate mode (fallback) only
   sample_rate: 48000
 
 # E2 timing-fit remediation (rung ②③): fit Chinese clips into segment windows.
