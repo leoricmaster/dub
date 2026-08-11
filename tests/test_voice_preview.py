@@ -1,7 +1,11 @@
+from dub.config import EnvSettings, TTSConfig
+from dub.providers.minimax_tts import VoiceIdInvalid
 from dub.voice_preview import (
     DEFAULT_PREVIEW_EMOTIONS,
     DEFAULT_PREVIEW_VOICES,
+    _filename_for,
     expand_matrix,
+    synthesize_previews,
 )
 
 
@@ -37,13 +41,6 @@ def test_expand_matrix_does_not_duplicate_anchor_when_present():
 def test_defaults_are_non_empty():
     assert "presenter_male" in DEFAULT_PREVIEW_VOICES
     assert DEFAULT_PREVIEW_EMOTIONS == ["calm"]
-
-
-from pathlib import Path
-
-from dub.config import EnvSettings, TTSConfig
-from dub.providers.minimax_tts import VoiceIdInvalid
-from dub.voice_preview import PreviewResult, _filename_for, synthesize_previews
 
 
 def _env():

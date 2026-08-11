@@ -8,6 +8,12 @@ docs/superpowers/specs/2026-08-11-documentary-voice-design.md.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+from pathlib import Path
+
+from .config import EnvSettings, TTSConfig, VoicePreset
+from .providers.minimax_tts import VoiceIdInvalid, synthesize_one
+
 # A representative BBC-nature-style Mandarin narration: has scene, rhythm and a
 # small emotional arc (not flat declarative). ~80 chars / a few seconds — enough
 # to judge timbre and cadence, cheap to synthesise.
@@ -52,15 +58,6 @@ def expand_matrix(
     if anchor not in matrix:
         matrix.append(anchor)
     return matrix
-
-
-from dataclasses import dataclass
-from pathlib import Path
-
-from rich.table import Table
-
-from .config import EnvSettings, TTSConfig, VoicePreset
-from .providers.minimax_tts import VoiceIdInvalid, synthesize_one
 
 
 @dataclass
