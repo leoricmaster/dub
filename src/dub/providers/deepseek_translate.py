@@ -92,3 +92,40 @@ def translate(
             seg.text_zh = zh
 
     return segments
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2, max=20))
+def retranslate_strict(seg: Segment, budget: int, cfg: TranslateConfig, env: EnvSettings) -> str:
+    """Re-translate ONE segment under a hard char budget (E2 rung ①).
+
+    Returns the Chinese string. Raises on API/parse failure (callers count it
+    as a failed refit and leave the segment for rung ②③).
+    """
+    if not env.deepseek_api_key:
+        raise ValueError("DEEPSEEK_API_KEY not set")
+
+    client = OpenAI(api_key=env.deepseek_api_key, base_url=DEEPSEEK_BASE_URL)
+    user_msg = (
+        f"Re-translate this ONE English documentary narration line into natural "
+        f"Mandarin suitable for voiceover.\n"
+        f"HARD LIMIT: at most {budget} Chinese characters. Prefer concise phrasing; "
+        f"keep the meaning.\n\n"
+        f'Output JSON: {{"zh":"中文"}}\n\n'
+        f"English: {seg.text_src}\n"
+        f"Target duration: {seg.duration_sec:.1f}s"
+    )
+    response = client.chat.completions.create(
+        model=cfg.model,
+        messages=[
+            {
+                "role": "system",
+                "content": SYSTEM_PROMPT.format(chars_per_sec=cfg.max_chars_per_second),
+            },
+            {"role": "user", "content": user_msg},
+        ],
+        temperature=cfg.temperature,
+        response_format={"type": "json_object"},
+    )
+    text = response.choices[0].message.content or ""
+    data = json.loads(text)
+    return str(data.get("zh", "")).strip()

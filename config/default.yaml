@@ -27,6 +27,7 @@ translate:
   max_chars_per_second: 3.5
   # Number of source segments to translate in one LLM call (for context)
   context_window: 8
+  refit: true               # E2 rung ①: re-translate over-budget segments before TTS
 
 # Stage: text-to-speech
 tts:
@@ -34,12 +35,19 @@ tts:
   model: speech-01-turbo    # MiniMax T2A model
   audio_format: wav
   sample_rate: 24000
+  max_speed: 1.2            # E2 rung ②: cap for speed re-synth
 
 # Stage: mix Chinese dub over original (P1 - simple attenuation)
 # In P2 this becomes true BGM ducking after Demucs separation.
 mix:
   bg_attenuation_db: -12    # how much to lower original while Chinese is playing
   sample_rate: 48000
+
+# E2 timing-fit remediation (rung ②③): fit Chinese clips into segment windows.
+remediate:
+  tolerance_ms: 50          # within this much of the window counts as "fit"
+  min_window_ms: 200        # smaller windows are degenerate -> truncate
+  max_atempo: 1.5           # ffmpeg atempo factor beyond which we truncate instead
 
 # Stage: mux back into container
 mux:

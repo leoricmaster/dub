@@ -27,9 +27,10 @@
 - **验收**：抽 10 段人耳评，无明显机翻腔/硬译。
 
 ### E2 时长对齐
-- ✅ TTS 后量测 clip 时长并校验窗口（`dub.timing`，已接入 pipeline 告警）。
-- ⬜ 超 段时长 → 调 `speed` 重合成 → 再 prompt 精简 → 拉伸兜底（自动修复）。
-- **验收**：clip 溢出率 = 0；无段间叠音。
+- ✅ TTS 后量测 clip 时长并校验窗口（`dub.timing`）。
+- ✅ 自动修复三级阶梯（`dub.remediate`）：① 翻译期字数预算重译 → ② speed 重合成（≤`tts.max_speed`）→ ③ ffmpeg `atempo` 保音高精确对齐；退化短窗截断。已接入 translate/pipeline。
+- ⬜ live 实跑验证（MiniMax speed 时长反比、DeepSeek 硬预算）——测试已写（`@pytest.mark.live`），待 `--run-live` 真实 key 确认。
+- **验收**：clip 溢出率 = 0（退化段除外）；无段间叠音。
 
 ### E3 音色固化
 - `dub voices` 校验有效 voice_id。

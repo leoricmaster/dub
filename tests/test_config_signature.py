@@ -50,3 +50,23 @@ def test_signature_changes_when_stage_config_changes():
     cfg2 = make_config()
     cfg2.translate = TranslateConfig(model="deepseek-reasoner")
     assert _config_signature(cfg1, "nature") != _config_signature(cfg2, "nature")
+
+
+def test_signature_changes_when_tts_max_speed_changes():
+    """E2 rung ② cap is part of cache identity."""
+    from dub.config import TTSConfig
+
+    cfg1 = make_config()
+    cfg2 = make_config()
+    cfg2.tts = TTSConfig(max_speed=1.3)
+    assert _config_signature(cfg1, "nature") != _config_signature(cfg2, "nature")
+
+
+def test_signature_changes_when_remediate_config_changes():
+    """E2 remediation tuning must invalidate the cache."""
+    from dub.config import RemediateConfig
+
+    cfg1 = make_config()
+    cfg2 = make_config()
+    cfg2.remediate = RemediateConfig(max_atempo=1.4)
+    assert _config_signature(cfg1, "nature") != _config_signature(cfg2, "nature")

@@ -9,6 +9,7 @@ then stretch).
 """
 from __future__ import annotations
 
+import math
 import wave
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +26,51 @@ def clip_duration_ms(path: Path) -> int:
 def fits_segment_window(seg: Segment, clip_ms: int) -> bool:
     """True when a clip of ``clip_ms`` fits within the segment's time window."""
     return clip_ms <= seg.duration_ms
+
+
+# ----- Budget / speed math for E2 timing-fit remediation -----
+
+
+def char_budget(duration_sec: float, max_chars_per_second: float) -> int:
+    """Max Chinese characters allowed for a segment of this duration."""
+    return math.ceil(duration_sec * max_chars_per_second)
+
+
+def fits_char_budget(
+    text: str, duration_sec: float, max_chars_per_second: float
+) -> bool:
+    return len(text) <= char_budget(duration_sec, max_chars_per_second)
+
+
+def over_budget_segments(
+    segments: list[Segment], max_chars_per_second: float
+) -> list[Segment]:
+    """Segments whose ``text_zh`` exceeds the char budget (rung ① candidates)."""
+    return [
+        s
+        for s in segments
+        if s.text_zh and len(s.text_zh) > char_budget(s.duration_sec, max_chars_per_second)
+    ]
+
+
+def required_speed(current_speed: float, clip_ms: int, window_ms: int) -> float:
+    """TTS speed so a clip of ``clip_ms`` fits ``window_ms`` (duration ~ 1/speed).
+
+    Returns inf for a non-positive window (cannot be fit by speeding up).
+    """
+    if window_ms <= 0:
+        return math.inf
+    return current_speed * clip_ms / window_ms
+
+
+def atempo_factor(clip_ms: int, window_ms: int) -> float:
+    """ffmpeg ``atempo`` factor to compress ``clip_ms`` into ``window_ms`` (>1 = faster).
+
+    Returns inf for a non-positive window.
+    """
+    if window_ms <= 0:
+        return math.inf
+    return clip_ms / window_ms
 
 
 @dataclass

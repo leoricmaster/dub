@@ -17,9 +17,8 @@ import hashlib
 import json
 import logging
 from pathlib import Path
-from typing import Optional
 
-from . import timing
+from . import remediate, timing
 from .cache import Cache, input_hash
 from .config import AppConfig, VoicePreset, load_config
 from .models import AudioTrack, JobContext, Segment
@@ -42,6 +41,7 @@ def _config_signature(config: AppConfig, voice: str) -> str:
         "tts": config.tts.model_dump(),
         "mix": config.mix.model_dump(),
         "mux": config.mux.model_dump(),
+        "remediate": config.remediate.model_dump(),
         "voice": voice,
         "voice_preset": config.voices[voice].model_dump(),
     }
@@ -53,6 +53,17 @@ def work_dir_for(input_path: Path, config: AppConfig, voice: str) -> Path:
     file_hash = input_hash(input_path, extra=voice)
     sig = _config_signature(config, voice)
     return Cache(config.pipeline.cache_dir).work_dir(f"{file_hash}-{sig}")
+
+
+def _make_resynth_fn(voice: VoicePreset, tts_cfg, env):
+    """Build a resynth callback for rung ②: re-synth one clip at a given speed."""
+    from .providers.minimax_tts import synthesize_one
+
+    def resynth(seg_id: int, text: str, speed: float, out_path: Path) -> Path:
+        v = voice.model_copy(update={"speed": speed})
+        return synthesize_one(text, v, tts_cfg, env, out_path)
+
+    return resynth
 
 
 def ensure_audio(
@@ -115,10 +126,10 @@ def ensure_translation(
 def run_pipeline(
     input_path: Path,
     voice: str,
-    config: Optional[AppConfig] = None,
+    config: AppConfig | None = None,
     resume: bool = True,
     keep_original_audio: bool = False,
-    sample_seconds: Optional[float] = None,
+    sample_seconds: float | None = None,
 ) -> Path:
     """Run the full pipeline; returns the output mkv path."""
     config = config or load_config()
@@ -156,11 +167,30 @@ def run_pipeline(
             ctx.segments, voice_preset, config.tts, config.env, work_dir
         )
 
-    # Timing check: warn on clips that overflow their segment window. Overflows
-    # cause overlapping Chinese narration (BACKLOG E2 will auto-remediate).
+    # Timing check + E2 remediation (rung ②③): fit overflowing clips into their
+    # segment windows so they don't overlap adjacent narration.
     overflows = timing.check_alignment(ctx.segments, ctx.tts_clips)
     if overflows:
-        log.warning("[4/6] timing\n%s", timing.summarize(overflows))
+        log.warning("[4/6] %d clip(s) overflow; remediating (rung ②③)", len(overflows))
+        report = remediate.remediate_clips(
+            ctx.segments,
+            ctx.tts_clips,
+            voice_preset.speed,
+            max_speed=config.tts.max_speed,
+            tolerance_ms=config.remediate.tolerance_ms,
+            min_window_ms=config.remediate.min_window_ms,
+            max_atempo=config.remediate.max_atempo,
+            resynth_fn=_make_resynth_fn(voice_preset, config.tts, config.env),
+            fit_fn=remediate.atempo_fit,
+        )
+        log.info("[4/6] timing remediation: %s", report)
+        remaining = timing.check_alignment(ctx.segments, ctx.tts_clips)
+        if remaining:
+            log.warning(
+                "[4/6] %d clip(s) still overflow after remediation:\n%s",
+                len(remaining),
+                timing.summarize(remaining),
+            )
 
     # ---- Stage 5: mix ----
     mixed_path = work_dir / "zh_audio.wav"

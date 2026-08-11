@@ -10,12 +10,10 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 import yaml
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
 
 # ----- Stage configs (from YAML) -----
 
@@ -42,6 +40,7 @@ class TranslateConfig(BaseModel):
     temperature: float = 0.3
     max_chars_per_second: float = 3.5
     context_window: int = 8
+    refit: bool = True  # E2 rung ①: re-translate over-budget segments before TTS
 
 
 class TTSConfig(BaseModel):
@@ -49,11 +48,20 @@ class TTSConfig(BaseModel):
     model: str = "speech-01-turbo"
     audio_format: str = "wav"
     sample_rate: int = 24000
+    max_speed: float = 1.2  # E2 rung ②: cap for speed re-synth
 
 
 class MixConfig(BaseModel):
     bg_attenuation_db: float = -12.0
     sample_rate: int = 48000
+
+
+class RemediateConfig(BaseModel):
+    """E2 timing-fit remediation tuning (rung ②③)."""
+
+    tolerance_ms: int = 50          # clips within this much of the window are "fit"
+    min_window_ms: int = 200        # windows smaller than this -> truncate (degenerate)
+    max_atempo: float = 1.5         # beyond this ffmpeg atempo factor -> truncate
 
 
 class MuxConfig(BaseModel):
@@ -104,6 +112,7 @@ class AppConfig:
     tts: TTSConfig = field(default_factory=TTSConfig)
     mix: MixConfig = field(default_factory=MixConfig)
     mux: MuxConfig = field(default_factory=MuxConfig)
+    remediate: RemediateConfig = field(default_factory=RemediateConfig)
     voices: dict[str, VoicePreset] = field(default_factory=dict)
     env: EnvSettings = field(default_factory=EnvSettings)
 
@@ -119,7 +128,7 @@ def config_dir() -> Path:
     return Path.cwd() / "config"
 
 
-def load_config(override: Optional[Path] = None) -> AppConfig:
+def load_config(override: Path | None = None) -> AppConfig:
     """Load defaults, voices, optional override YAML, and env secrets."""
 
     def _load_yaml(path: Path) -> dict:
@@ -145,6 +154,7 @@ def load_config(override: Optional[Path] = None) -> AppConfig:
         tts=TTSConfig(**merged.get("tts", {})),
         mix=MixConfig(**merged.get("mix", {})),
         mux=MuxConfig(**merged.get("mux", {})),
+        remediate=RemediateConfig(**merged.get("remediate", {})),
         voices=voices,
         env=EnvSettings(),
     )
