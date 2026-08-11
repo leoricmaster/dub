@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_not_exception_type, stop_after_attempt, wait_exponential
 
 from ..config import EnvSettings, TTSConfig, VoicePreset
 from ..models import Segment
@@ -21,7 +21,19 @@ log = logging.getLogger(__name__)
 MINIMAX_T2A_URL = "https://api.minimaxi.com/v1/t2a_v2"
 
 
-@retry(stop=stop_after_attempt(6), wait=wait_exponential(min=2, max=30))
+class VoiceIdInvalid(RuntimeError):
+    """MiniMax rejected the voice_id (status 2054 'voice id not exist').
+
+    Distinct from other failures so callers (e.g. preview-voices) can skip the
+    offending voice and continue with the next candidate instead of aborting.
+    """
+
+
+@retry(
+    retry=retry_if_not_exception_type(VoiceIdInvalid),
+    stop=stop_after_attempt(6),
+    wait=wait_exponential(min=2, max=30),
+)
 def synthesize_one(
     text: str,
     voice: VoicePreset,
@@ -68,6 +80,15 @@ def synthesize_one(
     )
     resp.raise_for_status()
     data = resp.json()
+
+    # MiniMax returns HTTP 200 even for API-level errors; voice_id problems
+    # surface as base_resp.status_code == 2054 ("voice id not exist").
+    base_resp = data.get("base_resp", {})
+    if base_resp.get("status_code") == 2054:
+        raise VoiceIdInvalid(
+            f"voice_id not accepted by MiniMax (status 2054): "
+            f"{base_resp.get('status_msg', '')}"
+        )
 
     audio_field = data.get("data", {}).get("audio")
     if not audio_field:

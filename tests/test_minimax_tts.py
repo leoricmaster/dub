@@ -6,6 +6,8 @@ raises clearly.
 """
 from __future__ import annotations
 
+import pytest
+
 from dub.config import EnvSettings, TTSConfig, VoicePreset
 from dub.providers import minimax_tts
 
@@ -60,3 +62,14 @@ def test_payload_omits_optional_fields_when_unset(monkeypatch, tmp_path):
     assert "emotion" not in p["voice_setting"]
     # core voice_setting fields still present
     assert {"voice_id", "speed", "vol", "pitch"} <= set(p["voice_setting"])
+
+
+def test_raises_voice_id_invalid_on_2054(monkeypatch, tmp_path):
+    payload = {
+        "base_resp": {"status_code": 2054, "status_msg": "voice id not exist"},
+        "data": {},
+    }
+    _capture_post(monkeypatch, payload=payload)
+    voice = VoicePreset(provider="minimax", voice_id="bogus-id")
+    with pytest.raises(minimax_tts.VoiceIdInvalid):
+        minimax_tts.synthesize_one("你好", voice, TTSConfig(), _env(), tmp_path / "a.wav")
