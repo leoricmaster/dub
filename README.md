@@ -62,7 +62,7 @@ dub zh input.mkv --voice nature --no-resume             # 改配置后强制重�
 
 ## 音色
 
-`config/voices.yaml`：`nature` 已固化为 `male-qn-yuanbo`（渊博男声，纪录片旁白）。其余预设（food/science/history）的 voice_id 仍为候选，到 [MiniMax 控制台](https://platform.minimaxi.com/platform/tts) 试听后更新即可。音色按预设缓存，换 voice_id 只重花 TTS 的钱。
+`config/voices.yaml`：`nature` 当前用 `presenter_male`（播音男声），仍在调优——用 `dub preview-voices` 跨候选音色×情感盲听对比，再把满意的固化进预设（设计见 [docs/superpowers/specs/2026-08-11-documentary-voice-design.md](docs/superpowers/specs/2026-08-11-documentary-voice-design.md)）。其余预设（food/science/history）的 voice_id 仍为候选。音色按预设缓存，换 voice_id 只重花 TTS 的钱。
 
 ## 文档
 
