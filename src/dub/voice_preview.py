@@ -52,3 +52,64 @@ def expand_matrix(
     if anchor not in matrix:
         matrix.append(anchor)
     return matrix
+
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from rich.table import Table
+
+from .config import EnvSettings, TTSConfig, VoicePreset
+from .providers.minimax_tts import VoiceIdInvalid, synthesize_one
+
+
+@dataclass
+class PreviewResult:
+    voice_id: str
+    emotion: str | None
+    status: str        # "ok" | "skipped" | "error"
+    path: Path | None
+    note: str          # filename on ok, error message otherwise
+
+
+def _filename_for(voice_id: str, emotion: str | None) -> str:
+    return f"{voice_id}__{emotion or 'none'}.wav"
+
+
+def _voice_for(voice_id: str, emotion: str | None, speed: float) -> VoicePreset:
+    return VoicePreset(
+        provider="minimax",
+        voice_id=voice_id,
+        speed=speed,
+        emotion=emotion,
+        language_boost="Chinese",
+    )
+
+
+def synthesize_previews(
+    matrix: list[tuple[str, str | None]],
+    text: str,
+    speed: float,
+    cfg: TTSConfig,
+    env: EnvSettings,
+    out_dir: Path,
+) -> list[PreviewResult]:
+    """Synthesise one clip per (voice_id, emotion) combo into out_dir.
+
+    Each combo is independent and never aborts the sweep: VoiceIdInvalid ->
+    "skipped", any other exception -> "error", success -> "ok".
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    results: list[PreviewResult] = []
+    for voice_id, emotion in matrix:
+        out_path = out_dir / _filename_for(voice_id, emotion)
+        try:
+            synthesize_one(text, _voice_for(voice_id, emotion, speed), cfg, env, out_path)
+            results.append(PreviewResult(voice_id, emotion, "ok", out_path, out_path.name))
+        except VoiceIdInvalid as e:
+            results.append(PreviewResult(voice_id, emotion, "skipped", None, str(e)))
+        except Exception as e:  # noqa: BLE001 - a preview sweep must survive any failure
+            results.append(
+                PreviewResult(voice_id, emotion, "error", None, f"{type(e).__name__}: {e}")
+            )
+    return results
