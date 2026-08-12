@@ -9,6 +9,7 @@ from dub.voice_preview import (
     _filename_for,
     expand_matrix,
     nature_yaml_template,
+    render_html,
     results_table,
     synthesize_previews,
 )
@@ -121,3 +122,38 @@ def test_nature_yaml_template_contains_fields():
     assert "emotion: calm" in out
     assert "speed: 0.92" in out
     assert "language_boost: Chinese" in out
+
+
+def test_render_html_writes_file_with_every_result(tmp_path):
+    results = [
+        PreviewResult("presenter_male", "calm", "ok",
+                      tmp_path / "presenter_male__calm.wav", "presenter_male__calm.wav"),
+        PreviewResult("male-qn-yuanbo", "calm", "skipped", None, "status 2054 voice id not exist"),
+    ]
+    out = render_html(results, tmp_path)
+    assert out == tmp_path / "index.html"
+    assert out.exists()
+    html = out.read_text(encoding="utf-8")
+    assert "presenter_male" in html
+    assert "male-qn-yuanbo" in html
+    assert "calm" in html
+
+
+def test_render_html_ok_rows_have_audio_player_with_relative_src(tmp_path):
+    results = [
+        PreviewResult("presenter_male", "calm", "ok",
+                      tmp_path / "presenter_male__calm.wav", "presenter_male__calm.wav"),
+    ]
+    html = render_html(results, tmp_path).read_text(encoding="utf-8")
+    assert "<audio" in html
+    assert "presenter_male__calm.wav" in html
+    assert str(tmp_path) not in html  # relative path, not absolute
+
+
+def test_render_html_failed_rows_show_reason_without_player(tmp_path):
+    results = [
+        PreviewResult("bogus", "calm", "skipped", None, "status 2054 voice id not exist"),
+    ]
+    html = render_html(results, tmp_path).read_text(encoding="utf-8")
+    assert "voice id not exist" in html
+    assert "<audio" not in html

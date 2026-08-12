@@ -9,6 +9,7 @@ docs/superpowers/specs/2026-08-11-documentary-voice-design.md.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from html import escape
 from pathlib import Path
 
 from rich.table import Table
@@ -138,3 +139,43 @@ def nature_yaml_template(speed: float) -> str:
         "  pitch: 0\n"
         "  language_boost: Chinese\n"
     )
+
+
+def render_html(results: list[PreviewResult], out_dir: Path) -> Path:
+    """Write a self-contained index.html: one row per result.
+
+    ok rows get an inline <audio> player referencing the wav by relative
+    filename (index.html lives next to the wavs); skipped/error rows show the
+    reason with no player. Returns the path to index.html.
+    """
+    rows: list[str] = []
+    for i, r in enumerate(results, start=1):
+        if r.status == "ok" and r.path is not None:
+            player = f'<audio controls src="{escape(r.path.name)}"></audio>'
+        else:
+            player = f'<span class="note">{escape(r.note)}</span>'
+        rows.append(
+            "<tr>"
+            f"<td>{i}</td>"
+            f"<td>{escape(r.voice_id)}</td>"
+            f"<td>{escape(r.emotion or '-')}</td>"
+            f"<td>{r.status}</td>"
+            f"<td>{player}</td>"
+            "</tr>"
+        )
+    html = (
+        "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+        "<title>Voice Preview Results</title>"
+        "<style>body{font-family:system-ui,sans-serif;margin:2rem}"
+        "table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:6px 12px}"
+        "audio{height:32px}.note{color:#888}</style>"
+        "</head><body><h1>Voice Preview Results</h1>"
+        "<table><tr><th>#</th><th>voice_id</th><th>emotion</th>"
+        "<th>status</th><th>试听</th></tr>"
+        + "\n".join(rows)
+        + "</table></body></html>"
+    )
+    out = out_dir / "index.html"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(html, encoding="utf-8")
+    return out

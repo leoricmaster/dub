@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import webbrowser
 from datetime import datetime
 from pathlib import Path
 
@@ -135,6 +136,9 @@ def preview_voices(
         None, "--text", help="Override the built-in preview narration line.",
     ),
     config: Path | None = typer.Option(None, "--config", help="Override YAML config path"),
+    no_open: bool = typer.Option(
+        False, "--no-open", help="Don't auto-open the preview page in a browser."
+    ),
 ) -> None:
     """Synthesise a fixed narration across voice x emotion candidates for A/B by ear.
 
@@ -155,6 +159,11 @@ def preview_voices(
         matrix, text or voice_preview.PREVIEW_TEXT, speed, cfg.tts, cfg.env, out_dir
     )
     console.print(results and voice_preview.results_table(results))
+
+    index_html = voice_preview.render_html(results, out_dir)
+    if not no_open:
+        webbrowser.open(index_html.resolve().as_uri())
+    console.print(f"[dim]preview page:[/dim] {index_html}")
 
     ok = [r for r in results if r.status == "ok"]
     console.print(
